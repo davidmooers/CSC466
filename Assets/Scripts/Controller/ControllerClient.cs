@@ -14,6 +14,9 @@ public class ControllerClient : MonoBehaviour
     public StatusText status;
 
     public bool PauseInputSending;
+#if UNITY_EDITOR
+    public Vector2? ExperimentMovementInput { get; set; }
+#endif
 
     private NetworkDriver driver;
     private NetworkConnection connection;
@@ -133,6 +136,13 @@ public class ControllerClient : MonoBehaviour
 
     private void ReadMovementInput()
     {
+#if UNITY_EDITOR
+        if (ExperimentMovementInput.HasValue)
+        {
+            movementInput = Vector2.ClampMagnitude(ExperimentMovementInput.Value, 1f);
+            return;
+        }
+#endif
         if (Keyboard.current == null) return;
 
         float x = 0f;

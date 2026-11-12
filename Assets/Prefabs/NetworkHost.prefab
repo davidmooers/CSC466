@@ -49,3 +49,6 @@ MonoBehaviour:
   Player: {fileID: 0}
   MoveSpeed: 5
   InputTimeoutSeconds: 0.5
+  TimeoutMode: 0
+  AdaptiveMinSeconds: 0.08
+  AdaptiveMaxSeconds: 0.5

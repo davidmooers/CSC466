@@ -10,19 +10,21 @@ using UnityEngine;
 public sealed class ExperimentCsvLogger : IDisposable
 {
     private readonly StreamWriter writer;
+    private readonly InputTimeoutMode mode;
 
     public string FilePath { get; }
 
-    public ExperimentCsvLogger(float inputTimeoutSeconds)
+    public ExperimentCsvLogger(float inputTimeoutSeconds, InputTimeoutMode mode)
     {
+        this.mode = mode;
         string directory = Path.Combine(Application.persistentDataPath, "ExperimentLogs");
         Directory.CreateDirectory(directory);
 
-        string fileName = $"input-timeout-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
+        string fileName = $"input-timeout-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}.csv";
         FilePath = Path.Combine(directory, fileName);
         writer = new StreamWriter(FilePath, false, new UTF8Encoding(false));
 
-        writer.WriteLine("utc_timestamp,elapsed_seconds,event_type,sequence,arrival_interval_ms,input_age_ms,timeout_seconds,input_x,input_y");
+        writer.WriteLine("utc_timestamp,elapsed_seconds,event_type,sequence,arrival_interval_ms,input_age_ms,timeout_seconds,input_x,input_y,timeout_mode");
         LogEvent("SessionStarted", 0f, 0, float.NaN, float.NaN, inputTimeoutSeconds, Vector2.zero);
     }
 
@@ -57,7 +59,8 @@ public sealed class ExperimentCsvLogger : IDisposable
             FormatNumber(inputAgeMs),
             FormatNumber(timeoutSeconds),
             FormatNumber(input.x),
-            FormatNumber(input.y));
+            FormatNumber(input.y),
+            mode.ToString());
 
         writer.WriteLine(row);
         writer.Flush();

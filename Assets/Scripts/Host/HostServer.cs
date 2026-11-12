@@ -12,6 +12,9 @@ public class HostServer : MonoBehaviour
     public float MoveSpeed = 5f;
 
     public float InputTimeoutSeconds = 0.25f;
+    public InputTimeoutMode TimeoutMode = InputTimeoutMode.Fixed;
+    [Min(0.001f)] public float AdaptiveMinSeconds = 0.08f;
+    [Min(0.001f)] public float AdaptiveMaxSeconds = 0.5f;
     public bool EnableCsvLogging = true;
 
     private Vector2 latestMovementInput;
@@ -25,8 +28,8 @@ public class HostServer : MonoBehaviour
     private NativeList<NetworkConnection> connections;
 
     private uint latestInputSequence;
-    private float lastInputReceivedTime;
-    private bool hasReceivedInput;
+    private NetworkConnection inputSource;
+    private InputTimeoutPolicy timeoutPolicy;
     private bool isTimedOut;
     private ExperimentCsvLogger experimentCsvLogger;
 
@@ -57,6 +60,8 @@ public class HostServer : MonoBehaviour
 
             Debug.LogError(message);
             status.SetText(message);
+            driver.Dispose();
+            driver = default;
             return;
         }
 
@@ -64,10 +69,13 @@ public class HostServer : MonoBehaviour
 
         // prewarm 16 connections to avoid allocations during gameplay
         connections = new NativeList<NetworkConnection>(16, Allocator.Persistent);
+        timeoutPolicy = new InputTimeoutPolicy(
+            TimeoutMode, InputTimeoutSeconds, AdaptiveMinSeconds, AdaptiveMaxSeconds
+        );
 
         if (EnableCsvLogging)
         {
-            experimentCsvLogger = new ExperimentCsvLogger(InputTimeoutSeconds);
+            experimentCsvLogger = new ExperimentCsvLogger(timeoutPolicy.TimeoutSeconds, TimeoutMode);
             Debug.Log($"CSV experiment logging started: {experimentCsvLogger.FilePath}");
         }
 
@@ -138,10 +146,18 @@ public class HostServer : MonoBehaviour
                         var reason = reader.ReadByte();
 
                         Debug.Log($"Client disconnected: {reason}");
-                        latestMovementInput = Vector2.zero;
+                        if (inputSource.Equals(connections[i]))
+                        {
+                            latestMovementInput = Vector2.zero;
+                            inputSource = default;
+                            timeoutPolicy.Reset();
+                            isTimedOut = false;
+                        }
                         connections[i] = default;
                         break;
                 }
+
+                if (!connections[i].IsCreated) break;
             }
         }
     }
@@ -153,7 +169,7 @@ public class HostServer : MonoBehaviour
         switch (messageType)
         {
             case NetworkMessageType.Input:
-                ProcessInputMessage(reader);
+                ProcessInputMessage(connection, reader);
                 break;
 
             default:
@@ -162,7 +178,7 @@ public class HostServer : MonoBehaviour
         }
     }
 
-    private void ProcessInputMessage(DataStreamReader reader)
+    private void ProcessInputMessage(NetworkConnection connection, DataStreamReader reader)
     {
         uint sequence = reader.ReadUInt();
         float x = reader.ReadFloat();
@@ -176,24 +192,27 @@ public class HostServer : MonoBehaviour
 
         float now = Time.unscaledTime;
 
-        float arrivalIntervalMs = float.NaN;
-
-        if (hasReceivedInput)
+        if (!inputSource.Equals(connection))
         {
-            arrivalIntervalMs = (now - lastInputReceivedTime) * 1000f;
+            inputSource = connection;
+            timeoutPolicy.Reset();
+            isTimedOut = false;
+        }
+
+        float arrivalIntervalMs = timeoutPolicy.ObserveArrival(now) * 1000f;
+        if (!float.IsNaN(arrivalIntervalMs))
+        {
 
             Debug.Log(
                 $"Input {sequence} | Arrival interval: {arrivalIntervalMs:F1} ms"
             );
         }
 
-        lastInputReceivedTime = now;
-        hasReceivedInput = true;
         experimentCsvLogger?.LogInputArrival(
             sequence,
             now,
             arrivalIntervalMs,
-            InputTimeoutSeconds,
+            timeoutPolicy.TimeoutSeconds,
             latestMovementInput
         );
 
@@ -203,7 +222,7 @@ public class HostServer : MonoBehaviour
             experimentCsvLogger?.LogTimeoutEnded(
                 sequence,
                 now,
-                InputTimeoutSeconds,
+                timeoutPolicy.TimeoutSeconds,
                 latestMovementInput
             );
         }
@@ -211,20 +230,21 @@ public class HostServer : MonoBehaviour
 
     private void MovePlayer()
     {
-        if (!hasReceivedInput) return;
+        if (!timeoutPolicy.HasInput) return;
 
-        float inputAge = Time.unscaledTime - lastInputReceivedTime;
+        float now = Time.unscaledTime;
+        float inputAge = now - timeoutPolicy.LastArrival;
 
-        bool timedOut = inputAge > InputTimeoutSeconds;
+        bool timedOut = timeoutPolicy.IsExpired(now);
 
         if (timedOut && !isTimedOut)
         {
             isTimedOut = true;
             experimentCsvLogger?.LogTimeoutStarted(
                 latestInputSequence,
-                Time.unscaledTime,
+                now,
                 inputAge * 1000f,
-                InputTimeoutSeconds,
+                timeoutPolicy.TimeoutSeconds,
                 latestMovementInput
             );
         }
@@ -233,8 +253,8 @@ public class HostServer : MonoBehaviour
             $"Host running\n" +
             $"Connected players: {connections.Length}\n" +
             $"Input age: {inputAge * 1000f:F0} ms\n" +
-            $"Timeout: {InputTimeoutSeconds * 1000f:F0} ms\n" +
-            $"Input state: {(hasReceivedInput ? (timedOut ? "TIMED OUT" : "ACTIVE") : "WAITING")}"
+            $"Timeout ({TimeoutMode}): {timeoutPolicy.TimeoutSeconds * 1000f:F0} ms\n" +
+            $"Input state: {(timedOut ? "TIMED OUT" : "ACTIVE")}"
         );
 
         // Stop applying old input when updates stop arriving.

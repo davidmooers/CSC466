@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CSC 466 Project · David Mooers</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font: 100%/1.65 system-ui, sans-serif;
+      color: #202421;
+      background: #f9faf8;
+    }
+
+    body { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem; }
+    header { padding-bottom: 1.5rem; }
+    header p, .todo { color: #505952; }
+    h1 { font-size: clamp(1.9rem, 5vw, 2.75rem); line-height: 1.15; margin: .5rem 0 1rem; }
+    h2 { font-size: 1.4rem; margin: 0 0 .75rem; }
+    h3 { font-size: 1.05rem; margin: 1.25rem 0 .25rem; }
+    .entry-date { color: #505952; font-size: .875rem; margin-bottom: .45rem; }
+    p, ul { margin: 0 0 .9rem; }
+    ul { padding-left: 1.25rem; }
+    li + li { margin-top: .3rem; }
+    nav { display: flex; flex-wrap: wrap; gap: .35rem 1.25rem; }
+    a { color: #245b42; text-underline-offset: .2em; }
+    section { border-top: 1px solid #d4dcd4; padding: 1.5rem 0; }
+    section > :last-child, article > :last-child { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <p>CSC 466 · David Mooers</p>
+    <h1>Fixed and Adaptive Input Timeouts for a Phone-Controlled Multiplayer Game</h1>
+    <nav aria-label="Project sections">
+      <a href="#proposal">Proposal</a>
+      <a href="#logbook">Logbook</a>
+      <a href="#updates">Project updates</a>
+      <a href="#report">Project report</a>
+      <a href="#demo">Demo and presentation</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="proposal">
+      <h2>Proposal</h2>
+      <p>In a shared-screen game with phone controllers, a gap in input updates can make the host keep moving a player after they release a control. A timeout that expires too soon can also stop movement while the player is still holding the control. Can an adaptive timeout balance those two errors better than a fixed timeout?</p>
+      <p>The plan is to build a Unity game with a PC host and phone-browser controllers that send input periodically over WebSockets using Unity Transport. Both policies will use the same transport and message format. The fixed policy expires input after a configured interval. The adaptive policy estimates a timeout from recent arrival intervals and their variation, with minimum and maximum limits.</p>
+
+      <h3>Related work</h3>
+      <p>AirConsole is a reference for the shared-screen setup, and TCP’s retransmission timer is an example of using measured timing to set a timeout.</p>
+      <p id="rs4-paper">My RS4 paper is <a href="https://doi.org/10.1016/j.comnet.2025.111235">Real-time latency prediction for cloud gaming applications</a> by Doriana Monaco et al., published in <cite>Computer Networks</cite> in 2025. The authors use recent network measurements to forecast latency and trigger game-state prediction when delays are expected to get too high. That relates to my project because I’m also using recent timing to make a game decision: when the host should stop applying the last controller input.</p>
+
+      <h3>Planned milestones</h3>
+      <ul>
+        <li>Mid-October · Review related work and build basic controller input and logging.</li>
+        <li>Late October to early November · Implement both policies and automated tests, and prepare the midterm presentation.</li>
+        <li>Mid-November · Run experiments across network conditions and input rates.</li>
+        <li>Late November to early December · Analyze results and prepare the demo, presentation, and report.</li>
+      </ul>
+    </section>
+
+    <section id="logbook">
+      <h2>Logbook</h2>
+      <article>
+        <h3>Picking a project idea</h3>
+        <p class="entry-date"><time datetime="2026-10">October 2026</time></p>
+        <p>I wanted to try using phones as controllers for a game on a shared screen. The part I wanted to figure out was what happens when the host stops hearing from a controller. How long should it keep moving the player based on the last input?</p>
+        <p>I decided to keep the game simple. I’d use Unity on the PC, run the phone controller in a browser, and send input over WebSockets. That way I could try both timeout settings without changing how the controller sends input.</p>
+      </article>
+      <article>
+        <h3>Writing the proposal</h3>
+        <p class="entry-date"><time datetime="2026-10">October 2026</time></p>
+        <p>While writing the proposal, I narrowed down what to measure. The player can keep moving after letting go, or stop moving while they’re still holding the control. I looked at AirConsole for the phone controller setup and at TCP’s retransmission timer for ideas on using recent message timing.</p>
+        <p>My plan was to get a fixed timeout working first, add logging, then try a timeout that adjusts as messages come in. I wanted to see how both behaved at different send rates and with delays. <a href="#proposal">Read the proposal.</a></p>
+        <p>I’ve since switched my <a href="#rs4-paper">RS4 paper</a> to Monaco et al.’s cloud gaming study. It’s a closer fit for the question I’m testing about delayed input in games.</p>
+      </article>
+      <article>
+        <h3>Fixed-timeout prototype</h3>
+        <p class="entry-date"><time datetime="2026-10-27">October 27, 2026</time></p>
+        <p>I got a cube moving in Unity from a WASD controller over WebSockets. The controller keeps sending even when I hold the same key. I added a P shortcut so I could pause the sends while keeping the connection open. The host writes arrivals and timeouts to a CSV.</p>
+        <p>I ran the host and controller on the same computer at 30 Hz with a 500 ms timeout. The host got 436 messages. Between pauses, messages arrived about 33.38 ms apart on average, with a standard deviation of 4.40 ms. I paused seven times. The cube stopped each time and could move again when I resumed sending. The host detected the timeout at an average input age of 502.75 ms.</p>
+        <p>Next I wanted to add the adaptive timeout and script the holds and releases so I could repeat the same test. I still hadn’t tried a phone controller or separate players.</p>
+      </article>
+      <article>
+        <h3>Adaptive timeout in Unity Play Mode</h3>
+        <p class="entry-date"><time datetime="2026-11-11">November 11, 2026</time></p>
+        <p>I added the adaptive timeout and tested both modes in Unity Play Mode. I used a script to hold and release movement and pause the controller at the same points in each run. The host got 206 messages per mode over localhost WebSockets, with the controller set to 30 Hz.</p>
+        <p>When I paused sending at release, the cube stopped after 519.5 ms on average with the fixed timeout and 100.0 ms with adaptive. I also paused briefly while the input was still held. Adaptive stopped the cube in all three trials, and fixed kept it moving.</p>
+        <p>Adaptive was at its 80 ms minimum every time it timed out. Next I want to try a fixed 80 ms setting too, then run the test with phone controls on a separate device and vary the network delay.</p>
+      </article>
+    </section>
+
+    <section id="updates">
+      <h2>Project updates</h2>
+      <article id="update-1">
+        <h3>Fixed-timeout prototype report</h3>
+        <p><a href="project-update-1.pdf">Read the fixed-timeout report (PDF)</a></p>
+      </article>
+      <article id="update-2">
+        <h3>Adaptive timeout experiment report</h3>
+        <p><a href="project-update-2.pdf">Read the adaptive timeout report (PDF)</a></p>
+      </article>
+    </section>
+
+    <section id="report">
+      <h2>Project report</h2>
+      <p class="todo">TODO</p>
+    </section>
+
+    <section id="demo">
+      <h2>Project demo and presentation</h2>
+      <p class="todo">TODO</p>
+    </section>
+  </main>
+</body>
+</html>
